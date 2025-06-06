@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 st.set_page_config(page_title="회전속도 분석기", layout="centered")
-st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 각속도 그래프")
+st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 각속도 그래프)")
 
 video_file = st.file_uploader("🎥 충돌 실험 영상을 업로드하세요", type=["mp4", "avi", "mov"])
 if video_file:
@@ -115,10 +115,22 @@ if video_file:
             angles = np.unwrap(angles)
             times_trim = times[1:]
             df = pd.DataFrame({"time": times_trim, "omega": omegas})
+            df["index"] = df.index
 
             st.markdown("### 🧹 이상치 제거를 위한 편집기")
-            indices_to_keep = st.multiselect("📌 사용할 프레임 인덱스 선택 (0부터 시작)", options=list(range(len(df))), default=list(range(len(df))))
-            df_clean = df.iloc[indices_to_keep]
+            selected_df = st.data_editor(
+                df,
+                column_order=("index", "time", "omega"),
+                column_config={
+                    "index": st.column_config.NumberColumn("🟢 포함 여부 (행 삭제하려면 제외하세요)", disabled=True),
+                    "time": st.column_config.NumberColumn("시간 (s)", format="%.4f"),
+                    "omega": st.column_config.NumberColumn("각속도 (rad/s)", format="%.4f"),
+                },
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic"
+            )
+            df_clean = selected_df.dropna()
 
             if len(df_clean) >= 2:
                 delta_theta = np.trapz(df_clean['omega'], df_clean['time'])
