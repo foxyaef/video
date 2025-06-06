@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 st.set_page_config(page_title="회전속도 분석기", layout="centered")
-st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 각속도 그래프)")
+st.title("🌀 2차원 충돌 실험: 회전속도 분석기")
 
 video_file = st.file_uploader("🎥 충돌 실험 영상을 업로드하세요", type=["mp4", "avi", "mov"])
 if video_file:
@@ -22,18 +22,18 @@ if video_file:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     st.info(f"총 프레임: {total_frames} / FPS: {fps:.2f} / 해상도: {width}x{height}")
 
-    start_frame, end_frame = st.slider("🎬 분석 구간 지정 (충돌 후)", 0, total_frames - 1, (20, min(80, total_frames - 1)))
+    start_frame, end_frame = st.slider("🎬 분석 구간 지정", 0, total_frames - 1, (20, min(80, total_frames - 1)))
     mass = st.number_input("🔢 퍽의 질량 m (kg)", min_value=0.01, value=0.20, step=0.01)
     radius = st.number_input("🔢 퍽의 반지름 R (m)", min_value=0.01, value=0.05, step=0.01)
 
-    st.markdown("### 🗂️ ROI 설정 (에어테이블 부분만 분석)")
+    st.markdown("### 🗂️ ROI 설정")
     x_min = st.slider("ROI X 시작", 0, width, 250)
-    x_max = st.slider("ROI X 끝", x_min+10, width, 1150)
+    x_max = st.slider("ROI X 끝", x_min + 10, width, 1150)
     y_min = st.slider("ROI Y 시작", 0, height, 100)
-    y_max = st.slider("ROI Y 끝", y_min+10, height, 980)
+    y_max = st.slider("ROI Y 끝", y_min + 10, height, 980)
 
     st.markdown("### 🎨 HSV 색상 범위 설정")
-    st.markdown("**중심 스티커 HSV 범위**")
+    st.markdown("**중심 스티커**")
     h1_min = st.slider("H1 최소", 0, 179, 10)
     h1_max = st.slider("H1 최대", 0, 179, 25)
     s1_min = st.slider("S1 최소", 0, 255, 150)
@@ -41,7 +41,7 @@ if video_file:
     v1_min = st.slider("V1 최소", 0, 255, 150)
     v1_max = st.slider("V1 최대", 0, 255, 255)
 
-    st.markdown("**회전 마커 HSV 범위**")
+    st.markdown("**회전 마커**")
     h2_min = st.slider("H2 최소", 0, 179, 30)
     h2_max = st.slider("H2 최대", 0, 179, 45)
     s2_min = st.slider("S2 최소", 0, 255, 100)
@@ -55,10 +55,7 @@ if video_file:
     upper_marker = np.array([h2_max, s2_max, v2_max])
 
     if st.button("회전 분석 시작"):
-        angles = []
-        times = []
-        omegas = []
-        display_frames = []
+        angles, times, omegas, display_frames = [], [], [], []
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
 
@@ -98,7 +95,7 @@ if video_file:
                     if len(angles) >= 2:
                         dtheta = angles[-1] - angles[-2]
                         dt = times[-1] - times[-2]
-                        omega_inst = dtheta / dt if dt > 0 else 0
+                        omega_inst = dtheta / dt if dt > 0 else np.nan
                         omegas.append(omega_inst)
 
                     vis = roi.copy()
@@ -108,7 +105,6 @@ if video_file:
                     display_frames.append(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
 
             frame_idx += 1
-
         cap.release()
 
         if len(angles) >= 2:
@@ -117,14 +113,12 @@ if video_file:
             df = pd.DataFrame({"time": times_trim, "omega": omegas})
             df["index"] = df.index
 
-
-            st.markdown("### 🧹 이상치 제거를 위한 편집기")
-            df["index"] = df.index
+            st.markdown("### 🧹 이상치 제거 (NaN → 평균 대체)")
             selected_df = st.data_editor(
                 df,
                 column_order=("index", "time", "omega"),
                 column_config={
-                    "index": st.column_config.NumberColumn("🟢 포함 여부 (행 삭제하려면 제외하세요)", disabled=True),
+                    "index": st.column_config.NumberColumn("프레임", disabled=True),
                     "time": st.column_config.NumberColumn("시간 (s)", format="%.4f"),
                     "omega": st.column_config.NumberColumn("각속도 (rad/s)", format="%.4f"),
                 },
@@ -132,38 +126,40 @@ if video_file:
                 hide_index=True,
                 num_rows="dynamic"
             )
-            df_clean = selected_df.dropna()
+
+            df_clean = selected_df.copy()
+            omega_mean = df_clean["omega"].mean()
+            df_clean["omega"] = df_clean["omega"].fillna(omega_mean)
 
             if len(df_clean) >= 2:
                 delta_theta = np.trapz(df_clean['omega'], df_clean['time'])
                 delta_t = df_clean['time'].iloc[-1] - df_clean['time'].iloc[0]
                 omega = delta_theta / delta_t
-                I = 0.5 * mass * (radius ** 2)
-                E_rot = 0.5 * I * (omega ** 2)
+                I = 0.5 * mass * radius ** 2
+                E_rot = 0.5 * I * omega ** 2
 
-                st.success(f"📐 평균 각속도 (이상치 제거 후) ω ≈ {omega:.3f} rad/s")
+                st.success(f"📐 평균 각속도 ≈ {omega:.3f} rad/s")
                 st.success(f"⚡ 회전 운동 에너지 ≈ {E_rot:.4f} J")
 
                 with st.expander("📊 세부 계산 보기"):
-                    st.write(f"Δθ = {delta_theta:.4f} rad (적분값)")
-                    st.write(f"Δt = {delta_t:.4f} sec")
+                    st.write(f"Δθ = {delta_theta:.4f} rad")
+                    st.write(f"Δt = {delta_t:.4f} s")
                     st.write(f"I = {I:.6f} kg·m²")
 
-                st.markdown("### 📈 각속도 그래프")
                 fig, ax = plt.subplots()
-                ax.plot(df_clean['time'], df_clean['omega'], marker='o', label='Filtered ω (rad/s)')
+                ax.plot(df_clean["time"], df_clean["omega"], marker='o')
                 ax.set_xlabel("시간 (s)")
                 ax.set_ylabel("각속도 (rad/s)")
-                ax.set_title("각속도 변화 (이상치 제거 후)")
+                ax.set_title("각속도 변화")
                 ax.grid(True)
                 st.pyplot(fig)
 
                 csv = df_clean.to_csv(index=False).encode("utf-8-sig")
-                st.download_button("📥 필터링된 각속도 CSV 다운로드", data=csv, file_name="filtered_angular_velocity.csv")
+                st.download_button("📥 각속도 CSV 다운로드", data=csv, file_name="filtered_angular_velocity.csv")
 
-
-            st.markdown("### 👁️ 마커 시각화 결과")
+            st.markdown("### 👁️ 시각화 프레임 샘플")
             for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
                 st.image(vis_frame, use_column_width=True)
+
         else:
-            st.error("충분한 마커 추적에 실패했습니다. HSV 범위 또는 ROI/프레임 범위를 조정해주세요.")
+            st.error("충분한 데이터가 추출되지 않았습니다. HSV 또는 ROI 범위를 조정해주세요.")
