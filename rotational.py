@@ -117,7 +117,9 @@ if video_file:
             df = pd.DataFrame({"time": times_trim, "omega": omegas})
             df["index"] = df.index
 
+
             st.markdown("### 🧹 이상치 제거를 위한 편집기")
+            df["index"] = df.index
             selected_df = st.data_editor(
                 df,
                 column_order=("index", "time", "omega"),
@@ -158,6 +160,7 @@ if video_file:
 
                 csv = df_clean.to_csv(index=False).encode("utf-8-sig")
                 st.download_button("📥 필터링된 각속도 CSV 다운로드", data=csv, file_name="filtered_angular_velocity.csv")
+
 
             st.markdown("### 👁️ 마커 시각화 결과")
             for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
