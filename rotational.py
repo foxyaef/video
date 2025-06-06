@@ -113,33 +113,39 @@ if video_file:
 
         if len(angles) >= 2:
             angles = np.unwrap(angles)
-            delta_theta = angles[-1] - angles[0]
-            delta_t = times[-1] - times[0]
-            omega = delta_theta / delta_t
-            I = 0.5 * mass * (radius ** 2)
-            E_rot = 0.5 * I * (omega ** 2)
+            times_trim = times[1:]
+            df = pd.DataFrame({"time": times_trim, "omega": omegas})
 
-            st.success(f"📐 평균 각속도 ω ≈ {omega:.3f} rad/s")
-            st.success(f"⚡ 회전 운동 에너지 ≈ {E_rot:.4f} J")
+            st.markdown("### 🧹 이상치 제거를 위한 편집기")
+            indices_to_keep = st.multiselect("📌 사용할 프레임 인덱스 선택 (0부터 시작)", options=list(range(len(df))), default=list(range(len(df))))
+            df_clean = df.iloc[indices_to_keep]
 
-            with st.expander("📊 세부 계산 보기"):
-                st.write(f"Δθ = {delta_theta:.4f} rad")
-                st.write(f"Δt = {delta_t:.4f} sec")
-                st.write(f"I = {I:.6f} kg·m²")
+            if len(df_clean) >= 2:
+                delta_theta = np.trapz(df_clean['omega'], df_clean['time'])
+                delta_t = df_clean['time'].iloc[-1] - df_clean['time'].iloc[0]
+                omega = delta_theta / delta_t
+                I = 0.5 * mass * (radius ** 2)
+                E_rot = 0.5 * I * (omega ** 2)
 
-            if omegas:
-                st.markdown("### 📈 프레임별 순간 각속도 그래프")
+                st.success(f"📐 평균 각속도 (이상치 제거 후) ω ≈ {omega:.3f} rad/s")
+                st.success(f"⚡ 회전 운동 에너지 ≈ {E_rot:.4f} J")
+
+                with st.expander("📊 세부 계산 보기"):
+                    st.write(f"Δθ = {delta_theta:.4f} rad (적분값)")
+                    st.write(f"Δt = {delta_t:.4f} sec")
+                    st.write(f"I = {I:.6f} kg·m²")
+
+                st.markdown("### 📈 각속도 그래프")
                 fig, ax = plt.subplots()
-                ax.plot(times[1:], omegas, marker='o', label='ω (rad/s)')
+                ax.plot(df_clean['time'], df_clean['omega'], marker='o', label='Filtered ω (rad/s)')
                 ax.set_xlabel("시간 (s)")
                 ax.set_ylabel("각속도 (rad/s)")
-                ax.set_title("프레임 간 순간 각속도 변화")
+                ax.set_title("각속도 변화 (이상치 제거 후)")
                 ax.grid(True)
                 st.pyplot(fig)
 
-                df = pd.DataFrame({"time": times[1:], "omega": omegas})
-                csv = df.to_csv(index=False).encode("utf-8-sig")
-                st.download_button("📥 각속도 CSV 다운로드", data=csv, file_name="angular_velocity.csv")
+                csv = df_clean.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("📥 필터링된 각속도 CSV 다운로드", data=csv, file_name="filtered_angular_velocity.csv")
 
             st.markdown("### 👁️ 마커 시각화 결과")
             for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
