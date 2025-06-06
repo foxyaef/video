@@ -35,10 +35,10 @@ if video_file:
     else:
         st.markdown("### 📌 중심 스티커와 회전 마커 클릭")
         ref_rgb = cv2.cvtColor(ref_frame, cv2.COLOR_BGR2RGB)
-        image_path = Path(tempfile.mktemp(suffix=".png"))
-        Image.fromarray(ref_rgb).save(image_path)
+        tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        Image.fromarray(ref_rgb).save(tmp_file.name)
 
-        coords = streamlit_image_coordinates("이미지에서 중심과 마커를 클릭하세요", str(image_path), key="click")
+        coords = streamlit_image_coordinates("이미지에서 중심과 마커를 클릭하세요", tmp_file.name, key="click")
 
         if coords:
             x, y = int(coords["x"]), int(coords["y"])
