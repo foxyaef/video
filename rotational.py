@@ -3,9 +3,10 @@ import cv2
 import numpy as np
 import tempfile
 import math
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 st.set_page_config(page_title="회전속도 분석기", layout="centered")
-st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (마커 시각화 + 색상 수동 지정)")
+st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (중심 기준 회전 + HSV 자동 설정 + 시각화)")
 
 video_file = st.file_uploader("🎥 충돌 실험 영상을 업로드하세요", type=["mp4", "avi", "mov"])
 if video_file:
@@ -19,81 +20,116 @@ if video_file:
     st.info(f"총 프레임: {total_frames} / FPS: {fps:.2f}")
 
     start_frame, end_frame = st.slider("🎬 분석 구간 지정 (충돌 후)", 0, total_frames - 1, (20, min(80, total_frames - 1)))
-
     mass = st.number_input("🔢 퍽의 질량 m (kg)", min_value=0.01, value=0.20, step=0.01)
     radius = st.number_input("🔢 퍽의 반지름 R (m)", min_value=0.01, value=0.05, step=0.01)
 
-    st.markdown("### 🎨 HSV 색상 범위 지정 (마커 색상)")
-    h_min = st.slider("H 최소", 0, 179, 25)
-    h_max = st.slider("H 최대", 0, 179, 35)
-    s_min = st.slider("S 최소", 0, 255, 100)
-    s_max = st.slider("S 최대", 0, 255, 255)
-    v_min = st.slider("V 최소", 0, 255, 100)
-    v_max = st.slider("V 최대", 0, 255, 255)
+    # 특정 프레임 이미지 가져오기
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    ret, ref_frame = cap.read()
+    cap.release()
 
-    visualize = st.checkbox("🖼️ 추적 시각화 보기 (느려질 수 있음)", value=True)
+    if not ret:
+        st.error("프레임을 불러올 수 없습니다.")
+    else:
+        st.markdown("### 📌 중심 스티커와 회전 마커 클릭")
+        ref_rgb = cv2.cvtColor(ref_frame, cv2.COLOR_BGR2RGB)
+        coords = streamlit_image_coordinates("이미지에서 중심과 마커를 클릭하세요", ref_rgb, key="click")
 
-    if st.button("분석 시작"):
-        lower_bound = np.array([h_min, s_min, v_min])
-        upper_bound = np.array([h_max, s_max, v_max])
+        if coords:
+            x, y = int(coords["x"]), int(coords["y"])
+            hsv_frame = cv2.cvtColor(ref_frame, cv2.COLOR_BGR2HSV)
+            clicked_hsv = hsv_frame[y, x]
+            st.write(f"🟡 클릭한 픽셀의 HSV: {clicked_hsv}")
 
-        angles = []
-        times = []
-        display_frames = []
+            if "center_hsv" not in st.session_state:
+                if st.button("이 값을 중심 스티커 HSV로 사용"):
+                    st.session_state.center_hsv = clicked_hsv
+            elif "marker_hsv" not in st.session_state:
+                if st.button("이 값을 마커 HSV로 사용"):
+                    st.session_state.marker_hsv = clicked_hsv
 
-        frame_idx = 0
-        cap = cv2.VideoCapture(video_path)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret or frame_idx > end_frame:
-                break
-            if frame_idx < start_frame:
-                frame_idx += 1
-                continue
+        if "center_hsv" in st.session_state and "marker_hsv" in st.session_state:
+            def hsv_range(hsv_val, delta=20):
+                h, s, v = hsv_val
+                lower = np.array([max(h - delta, 0), max(s - delta, 0), max(v - delta, 0)])
+                upper = np.array([min(h + delta, 179), min(s + delta, 255), min(v + delta, 255)])
+                return lower, upper
 
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            mask = cv2.inRange(hsv, lower_bound, upper_bound)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            lower_center, upper_center = hsv_range(st.session_state.center_hsv)
+            lower_marker, upper_marker = hsv_range(st.session_state.marker_hsv)
 
-            if contours:
-                largest = max(contours, key=cv2.contourArea)
-                M = cv2.moments(largest)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    angle = math.atan2(cy, cx)
-                    angles.append(angle)
-                    times.append(frame_idx / fps)
+            st.success("중심/마커 HSV 범위 설정 완료. 분석 시작 가능!")
 
-                    # 시각화
-                    if visualize:
-                        cv2.circle(frame, (cx, cy), 10, (0, 0, 255), 2)
-                        cv2.putText(frame, f"{frame_idx}", (cx + 10, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-                        display_frames.append(frame)
+            if st.button("회전 분석 시작"):
+                angles = []
+                times = []
+                display_frames = []
+                cap = cv2.VideoCapture(video_path)
+                frame_idx = 0
 
-            frame_idx += 1
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret or frame_idx > end_frame:
+                        break
+                    if frame_idx < start_frame:
+                        frame_idx += 1
+                        continue
 
-        cap.release()
+                    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                    center_mask = cv2.inRange(hsv, lower_center, upper_center)
+                    marker_mask = cv2.inRange(hsv, lower_marker, upper_marker)
 
-        if visualize and display_frames:
-            st.markdown("### 👁️ 추적된 프레임 시각화")
-            for disp in display_frames[::max(len(display_frames)//10,1)]:
-                st.image(cv2.cvtColor(disp, cv2.COLOR_BGR2RGB), channels="RGB")
+                    contours_c, _ = cv2.findContours(center_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    contours_m, _ = cv2.findContours(marker_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        if len(angles) >= 2:
-            angles = np.unwrap(angles)
-            delta_theta = angles[-1] - angles[0]
-            delta_t = times[-1] - times[0]
-            omega = delta_theta / delta_t
-            I = 0.5 * mass * (radius ** 2)
-            E_rot = 0.5 * I * (omega ** 2)
+                    if contours_c and contours_m:
+                        c = max(contours_c, key=cv2.contourArea)
+                        m = max(contours_m, key=cv2.contourArea)
+                        Mc = cv2.moments(c)
+                        Mm = cv2.moments(m)
 
-            st.success(f"📐 평균 각속도 ω ≈ {omega:.3f} rad/s")
-            st.success(f"⚡ 회전 운동 에너지 ≈ {E_rot:.4f} J")
+                        if Mc["m00"] > 0 and Mm["m00"] > 0:
+                            cx = int(Mc["m10"] / Mc["m00"])
+                            cy = int(Mc["m01"] / Mc["m00"])
+                            mx = int(Mm["m10"] / Mm["m00"])
+                            my = int(Mm["m01"] / Mm["m00"])
 
-            with st.expander("📊 세부 계산 보기"):
-                st.write(f"Δθ = {delta_theta:.4f} rad")
-                st.write(f"Δt = {delta_t:.4f} sec")
-                st.write(f"I = {I:.6f} kg·m²")
+                            angle = math.atan2(my - cy, mx - cx)
+                            angles.append(angle)
+                            times.append(frame_idx / fps)
+
+                            # 시각화용 표시 추가
+                            vis = frame.copy()
+                            cv2.circle(vis, (cx, cy), 8, (255, 0, 0), 2)
+                            cv2.circle(vis, (mx, my), 8, (0, 255, 0), 2)
+                            cv2.line(vis, (cx, cy), (mx, my), (0, 255, 255), 2)
+                            display_frames.append(cv2.cvtColor(vis, cv2.COLOR_BGR2RGB))
+
+                    frame_idx += 1
+
+                cap.release()
+
+                if len(angles) >= 2:
+                    angles = np.unwrap(angles)
+                    delta_theta = angles[-1] - angles[0]
+                    delta_t = times[-1] - times[0]
+                    omega = delta_theta / delta_t
+                    I = 0.5 * mass * (radius ** 2)
+                    E_rot = 0.5 * I * (omega ** 2)
+
+                    st.success(f"📐 평균 각속도 ω ≈ {omega:.3f} rad/s")
+                    st.success(f"⚡ 회전 운동 에너지 ≈ {E_rot:.4f} J")
+
+                    with st.expander("📊 세부 계산 보기"):
+                        st.write(f"Δθ = {delta_theta:.4f} rad")
+                        st.write(f"Δt = {delta_t:.4f} sec")
+                        st.write(f"I = {I:.6f} kg·m²")
+
+                    st.markdown("### 👁️ 마커 시각화 결과")
+                    for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
+                        st.image(vis_frame, use_column_width=True)
+                else:
+                    st.error("충분한 마커 추적에 실패했습니다. 클릭한 색상 HSV 범위 또는 프레임 범위를 조정해주세요.")
+
         else:
-            st.error("⚠️ 회전 마커를 충분히 추적하지 못했습니다. 색상 범위 또는 프레임 구간을 조정해보세요.")
+            st.info("중심과 마커를 각각 클릭해서 HSV 값을 설정해주세요.")
