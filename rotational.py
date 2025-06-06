@@ -4,9 +4,10 @@ import numpy as np
 import tempfile
 import math
 import matplotlib.pyplot as plt
+import pandas as pd
 
 st.set_page_config(page_title="회전속도 분석기", layout="centered")
-st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 거리 필터)")
+st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 각속도 그래프")
 
 video_file = st.file_uploader("🎥 충돌 실험 영상을 업로드하세요", type=["mp4", "avi", "mov"])
 if video_file:
@@ -89,11 +90,6 @@ if video_file:
                     mx = int(Mm["m10"] / Mm["m00"])
                     my = int(Mm["m01"] / Mm["m00"])
 
-                    dist = math.sqrt((mx - cx)**2 + (my - cy)**2)
-                    if dist > radius * 1000:
-                        frame_idx += 1
-                        continue
-
                     angle = math.atan2(my - cy, mx - cx)
                     time = frame_idx / fps
                     angles.append(angle)
@@ -140,6 +136,10 @@ if video_file:
                 ax.set_title("프레임 간 순간 각속도 변화")
                 ax.grid(True)
                 st.pyplot(fig)
+
+                df = pd.DataFrame({"time": times[1:], "omega": omegas})
+                csv = df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button("📥 각속도 CSV 다운로드", data=csv, file_name="angular_velocity.csv")
 
             st.markdown("### 👁️ 마커 시각화 결과")
             for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
