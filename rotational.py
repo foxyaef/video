@@ -3,9 +3,10 @@ import cv2
 import numpy as np
 import tempfile
 import math
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="회전속도 분석기", layout="centered")
-st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화)")
+st.title("🌀 2차원 충돌 실험: 회전속도 분석기 (ROI 설정 + HSV 슬라이더 + 시각화 + 거리 필터)")
 
 video_file = st.file_uploader("🎥 충돌 실험 영상을 업로드하세요", type=["mp4", "avi", "mov"])
 if video_file:
@@ -55,6 +56,7 @@ if video_file:
     if st.button("회전 분석 시작"):
         angles = []
         times = []
+        omegas = []
         display_frames = []
         cap = cv2.VideoCapture(video_path)
         frame_idx = 0
@@ -87,9 +89,21 @@ if video_file:
                     mx = int(Mm["m10"] / Mm["m00"])
                     my = int(Mm["m01"] / Mm["m00"])
 
+                    dist = math.sqrt((mx - cx)**2 + (my - cy)**2)
+                    if dist > radius * 1000:
+                        frame_idx += 1
+                        continue
+
                     angle = math.atan2(my - cy, mx - cx)
+                    time = frame_idx / fps
                     angles.append(angle)
-                    times.append(frame_idx / fps)
+                    times.append(time)
+
+                    if len(angles) >= 2:
+                        dtheta = angles[-1] - angles[-2]
+                        dt = times[-1] - times[-2]
+                        omega_inst = dtheta / dt if dt > 0 else 0
+                        omegas.append(omega_inst)
 
                     vis = roi.copy()
                     cv2.circle(vis, (cx, cy), 8, (255, 0, 0), 2)
@@ -116,6 +130,16 @@ if video_file:
                 st.write(f"Δθ = {delta_theta:.4f} rad")
                 st.write(f"Δt = {delta_t:.4f} sec")
                 st.write(f"I = {I:.6f} kg·m²")
+
+            if omegas:
+                st.markdown("### 📈 프레임별 순간 각속도 그래프")
+                fig, ax = plt.subplots()
+                ax.plot(times[1:], omegas, marker='o', label='ω (rad/s)')
+                ax.set_xlabel("시간 (s)")
+                ax.set_ylabel("각속도 (rad/s)")
+                ax.set_title("프레임 간 순간 각속도 변화")
+                ax.grid(True)
+                st.pyplot(fig)
 
             st.markdown("### 👁️ 마커 시각화 결과")
             for vis_frame in display_frames[::max(1, len(display_frames)//10)]:
